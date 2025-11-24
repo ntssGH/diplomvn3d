@@ -4,12 +4,12 @@ using UnityEngine;
 public class RadialChoiceTrigger : MonoBehaviour
 {
     [Header("References")]
-    public RadialChoiceWheel wheel;   // сюда перетащи UI_RadialChoice
-    public TimeFreeze freezer;        // сюда объект с TimeFreeze
-    public Camera uiCam;              // Main Camera
-    public Transform wheelAnchor;     // пустышка в мире, где висит колесо
+    public RadialChoiceWheel wheel;
+    public TimeFreeze freezer;
+    public Camera uiCam;
+    public Transform wheelAnchor;
 
-    [Header("Test options")]
+    [Header("Options for testing")]
     [TextArea]
     public List<string> testOptions = new List<string>
     {
@@ -18,62 +18,58 @@ public class RadialChoiceTrigger : MonoBehaviour
         "Солгать"
     };
 
-    // Игрок должен иметь тег "Player"
     void OnTriggerEnter(Collider other)
     {
-        if (!other.CompareTag("Player")) return;
+        if (!other.CompareTag("Player"))
+            return;
 
-        if (uiCam == null) uiCam = Camera.main;
+        if (!uiCam)
+            uiCam = Camera.main;
 
-        // Ставим колесо в нужное место в мире
-        if (wheelAnchor != null)
+        if (wheelAnchor)
         {
             wheel.transform.position = wheelAnchor.position;
-            // Поворачиваем лицом к камере
-            wheel.transform.rotation =
-                Quaternion.LookRotation(uiCam.transform.forward, Vector3.up);
+            wheel.transform.rotation = Quaternion.LookRotation(uiCam.transform.forward, Vector3.up);
         }
 
-        // Показываем колесо
-        wheel.BuildAndShow(testOptions, uiCam);
+        wheel.BuildAndShow(testOptions);
 
-        // Фризим время (если задан)
-        if (freezer != null)
+        if (freezer)
             freezer.Freeze();
 
-        // Курсор нам не нужен — пусть камера крутится
-        Cursor.visible = false;
-        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = true;
+        Cursor.lockState = CursorLockMode.Confined;
     }
 
     void OnTriggerExit(Collider other)
     {
-        if (!other.CompareTag("Player")) return;
+        if (!other.CompareTag("Player"))
+            return;
 
-        // Если вышли из зоны — просто прячем колесо и размораживаем
-        if (freezer != null)
+        if (freezer)
             freezer.Unfreeze();
 
-        if (wheel != null)
+        if (wheel)
             wheel.Hide();
 
         Cursor.visible = false;
         Cursor.lockState = CursorLockMode.Locked;
     }
 
-    // Это можно повесить в OnChoice у RadialChoiceWheel (в инспекторе)
     public void OnChoiceSelected(int index)
     {
-        Debug.Log($"Выбран вариант: {index} — {testOptions[index]}");
+        if (index >= 0 && index < testOptions.Count)
+            Debug.Log($"Выбран вариант: {index} — {testOptions[index]}");
+        else
+            Debug.Log($"Выбран вариант: {index}");
 
-        if (freezer != null)
+        if (freezer)
             freezer.Unfreeze();
 
-        if (wheel != null)
+        if (wheel)
             wheel.Hide();
 
         Cursor.visible = false;
         Cursor.lockState = CursorLockMode.Locked;
-        // тут дальше твоя логика ветки диалога
     }
 }

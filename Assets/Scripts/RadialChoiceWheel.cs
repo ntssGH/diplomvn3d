@@ -1,248 +1,212 @@
+using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 using UnityEngine.Events;
-using UnityEngine.UI;
-using TMPro;
-using System.Collections.Generic;
 
 public class RadialChoiceWheel : MonoBehaviour
 {
-    [Header("Refs")]
-    public RectTransform wheelRoot;      // RectTransform Canvas'а колеса
-    public RectTransform segmentsRoot;   // пустышка "Segments"
-    public Sprite circleSprite;          // круглый UISprite (без рисунков)
-    public TMP_FontAsset font;           // шрифт для подписей
-    public UIRingSector hoverRing;       // перетащи объект с UIRingSector
+    [Header("References")]
+    public RectTransform wheelRoot;
+    public RectTransform segmentsRoot;
+    public CanvasGroup canvasGroup;
+    public TMP_FontAsset labelFont;
 
-    [Header("Look")]
-    public float radius = 450f;          // радиус "пирожка"
-    public float labelRadius = 300f;     // радиус подписей
-    public Color segNormal = new Color(1, 1, 1, 0.15f);
-    public Color segHover = new Color(1, 1, 1, 0.40f);
-    public Color labelNormal = Color.white;
-    public Color labelHover = Color.yellow;
-
-    [Header("Angles")]
-    [Tooltip("0° вправо. -90° вверх.")]
+    [Header("Geometry")]
+    public float outerRadius = 420f;
+    public float innerRadius = 140f;
+    public float labelRadius = 280f;
     public float startAngleDeg = -90f;
+    [Tooltip("Gap between slices in degrees")]
+    [Range(0f, 20f)] public float gapDegrees = 2.5f;
 
-    [Header("Dividers (optional)")]
-    public bool showDividers = false;
-    public float dividerThickness = 6f;
-    public Color dividerColor = new Color(1, 1, 1, 0.25f);
-
-    [Header("Hover Ring")]
-    public float hoverRingOffset = 18f;   // смещение кольца от labelRadius
-    public float hoverRingThickness = 28f;
-    public float hoverFillPercent = 0.84f; // доля ширины сектора (0..1)
+    [Header("Appearance")]
+    public Color segmentColor = new Color(1f, 1f, 1f, 0.18f);
+    public Color segmentHoverColor = new Color(1f, 1f, 1f, 0.42f);
+    public Color labelColor = Color.white;
+    public Color labelHoverColor = new Color(1f, 0.92f, 0.3f);
 
     [Header("Input")]
-    public bool useGaze = true;                 // наведение взглядом
-    public KeyCode confirmKey = KeyCode.E;      // подтвердить
-    public KeyCode altConfirmKey = KeyCode.Space;
+    public KeyCode confirmKey = KeyCode.Mouse0;
+    public KeyCode altConfirmKey = KeyCode.Return;
+    public bool allowNumberHotkeys = true;
 
     [Header("Runtime")]
     public List<string> options = new();
     public UnityEvent<int> onChoice;
 
-    // internals
-    Camera cam;
-    RectTransform rect;
-    readonly List<Image> segImgs = new();
+    readonly List<RadialChoiceSegmentGraphic> segmentGraphics = new();
     readonly List<TextMeshProUGUI> labels = new();
-    int hovered = -1;
+    int hoveredIndex = -1;
+    Canvas cachedCanvas;
 
     void Awake()
     {
-        rect = wheelRoot ? wheelRoot : GetComponent<RectTransform>();
-        if (!segmentsRoot) segmentsRoot = rect;
+        if (!wheelRoot) wheelRoot = GetComponent<RectTransform>();
+        if (!segmentsRoot) segmentsRoot = wheelRoot;
+        if (!canvasGroup) canvasGroup = GetComponent<CanvasGroup>();
+        cachedCanvas = GetComponentInParent<Canvas>();
+        Hide();
     }
 
-    public void BuildAndShow(List<string> opts, Camera uiCam = null)
+    void OnEnable()
     {
-        options = (opts != null && opts.Count > 0) ? opts : options;
-        cam = uiCam ? uiCam : Camera.main;
-
-        ClearSegments();
-        if (options.Count > 0) BuildSegments();
-
-        // чтобы мир-UI не перехватывал клики
-        foreach (var g in GetComponentsInChildren<Graphic>(true)) g.raycastTarget = false;
-
-        // подготовим hover-дугу
-        if (hoverRing)
-        {
-            hoverRing.enabled = false;
-            hoverRing.color = new Color(1, 1, 1, 0.6f);
-            hoverRing.outerRadius = labelRadius + hoverRingOffset;
-            hoverRing.thickness = hoverRingThickness;
-        }
-
-        gameObject.SetActive(true);
+        if (canvasGroup) canvasGroup.alpha = 1f;
     }
 
-    public void Hide() => gameObject.SetActive(false);
+    public void BuildAndShow(List<string> opts)
+    {
+        options = opts != null && opts.Count > 0 ? new List<string>(opts) : options;
+        ClearSegments();
+        if (options.Count > 0)
+        {
+            BuildSegments();
+            hoveredIndex = -1;
+            gameObject.SetActive(true);
+        }
+    }
+
+    public void Hide()
+    {
+        if (canvasGroup)
+        {
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+        gameObject.SetActive(false);
+    }
 
     void Update()
     {
-        if (!gameObject.activeInHierarchy || options.Count == 0) return;
+        if (!gameObject.activeInHierarchy || options.Count == 0)
+            return;
 
-        // наведение взглядом
-        if (useGaze && cam)
+        UpdateHoverIndex();
+
+        if (allowNumberHotkeys)
         {
-            Vector3 hitPoint;
-            int idx = GazeHoverIndex(cam, out hitPoint);
-            SetHover(idx);
-            // В Game-вью включи "Gizmos", если хочешь видеть линию:
-            Debug.DrawLine(cam.transform.position, hitPoint, Color.cyan, 0f, true);
+            for (int i = 0; i < options.Count && i < 9; i++)
+            {
+                if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i))
+                {
+                    Choose(i);
+                    return;
+                }
+            }
         }
 
-        // хоткеи 1..9
-        for (int i = 0; i < options.Count && i < 9; i++)
+        if ((Input.GetKeyDown(confirmKey) || Input.GetKeyDown(altConfirmKey)) && hoveredIndex >= 0)
         {
-            if (Input.GetKeyDown(KeyCode.Alpha1 + i) || Input.GetKeyDown(KeyCode.Keypad1 + i))
-            { Choose(i); return; }
+            Choose(hoveredIndex);
         }
-
-        // подтверждение E/Space
-        if ((Input.GetKeyDown(confirmKey) || Input.GetKeyDown(altConfirmKey)) && hovered >= 0)
-        { Choose(hovered); return; }
     }
 
-    // === Geometry ===
     void BuildSegments()
     {
         float sector = 360f / options.Count;
+        float halfGap = Mathf.Clamp(gapDegrees, 0f, sector - 0.01f) * 0.5f;
 
         for (int i = 0; i < options.Count; i++)
         {
-            // сегмент-пирожок (визуальная база)
-            var segGO = new GameObject($"Seg_{i}", typeof(RectTransform), typeof(Image));
+            float start = startAngleDeg + i * sector + halfGap;
+            float end = startAngleDeg + (i + 1) * sector - halfGap;
+
+            var segGO = new GameObject($"Segment_{i}", typeof(RectTransform), typeof(RadialChoiceSegmentGraphic));
             segGO.transform.SetParent(segmentsRoot, false);
-            var sr = segGO.GetComponent<RectTransform>();
-            sr.sizeDelta = new Vector2(radius * 2f, radius * 2f);
-            sr.anchoredPosition = Vector2.zero;
-            sr.localRotation = Quaternion.Euler(0, 0, -(startAngleDeg + i * sector));
+            var segRect = segGO.GetComponent<RectTransform>();
+            segRect.sizeDelta = new Vector2(outerRadius * 2f, outerRadius * 2f);
+            segRect.anchoredPosition = Vector2.zero;
 
-            var img = segGO.GetComponent<Image>();
-            img.sprite = circleSprite;
-            img.type = Image.Type.Filled;
-            img.fillMethod = Image.FillMethod.Radial360;
-            img.fillOrigin = 2;      // сверху
-            img.fillClockwise = false;
-            img.fillAmount = 1f / options.Count;
-            img.color = segNormal;
-            img.raycastTarget = false;
-            segImgs.Add(img);
+            var graphic = segGO.GetComponent<RadialChoiceSegmentGraphic>();
+            graphic.raycastTarget = false;
+            graphic.Configure(start, end, innerRadius, outerRadius, segmentColor);
+            segmentGraphics.Add(graphic);
 
-            // подпись
             var labelGO = new GameObject($"Label_{i}", typeof(RectTransform), typeof(TextMeshProUGUI));
             labelGO.transform.SetParent(segmentsRoot, false);
-            var lr = labelGO.GetComponent<RectTransform>();
-            lr.sizeDelta = new Vector2(520, 90);
+            var labelRect = labelGO.GetComponent<RectTransform>();
+            labelRect.sizeDelta = new Vector2(520f, 96f);
+            labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
 
-            float midDeg = startAngleDeg + (i + 0.5f) * sector;
+            float midDeg = (start + end) * 0.5f;
             float midRad = midDeg * Mathf.Deg2Rad;
-            lr.anchoredPosition = new Vector2(Mathf.Cos(midRad), Mathf.Sin(midRad)) * labelRadius;
-            lr.localRotation = Quaternion.identity;
+            Vector2 labelPos = new Vector2(Mathf.Cos(midRad), Mathf.Sin(midRad)) * labelRadius;
+            labelRect.anchoredPosition = labelPos;
+            labelRect.localRotation = Quaternion.identity;
 
             var tmp = labelGO.GetComponent<TextMeshProUGUI>();
-            if (font) tmp.font = font;
-            tmp.text = $"{i + 1}) {options[i]}";
+            if (labelFont) tmp.font = labelFont;
             tmp.alignment = TextAlignmentOptions.Center;
-            tmp.enableAutoSizing = true; tmp.fontSizeMin = 22; tmp.fontSizeMax = 48;
-            tmp.color = labelNormal;
+            tmp.enableAutoSizing = true;
+            tmp.fontSizeMin = 22;
+            tmp.fontSizeMax = 48;
+            tmp.color = labelColor;
+            tmp.text = options[i];
             tmp.raycastTarget = false;
             labels.Add(tmp);
-
-            // делитель (по желанию)
-            if (showDividers)
-            {
-                var divGO = new GameObject($"Divider_{i}", typeof(RectTransform), typeof(Image));
-                divGO.transform.SetParent(segmentsRoot, false);
-                var dr = divGO.GetComponent<RectTransform>();
-                dr.sizeDelta = new Vector2(dividerThickness, radius * 2f);
-                dr.anchoredPosition = Vector2.zero;
-
-                float edgeDeg = startAngleDeg + i * sector;
-                dr.localRotation = Quaternion.Euler(0, 0, -edgeDeg);
-
-                var dimg = divGO.GetComponent<Image>();
-                dimg.color = dividerColor;
-                dimg.raycastTarget = false;
-            }
         }
+
+        if (canvasGroup)
+        {
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = false;
+        }
+
+        if (!gameObject.activeSelf)
+            gameObject.SetActive(true);
     }
 
     void ClearSegments()
     {
-        for (int i = segmentsRoot.childCount - 1; i >= 0; i--)
-            Destroy(segmentsRoot.GetChild(i).gameObject);
+        if (segmentsRoot)
+        {
+            for (int i = segmentsRoot.childCount - 1; i >= 0; i--)
+                Destroy(segmentsRoot.GetChild(i).gameObject);
+        }
 
-        segImgs.Clear(); labels.Clear();
-        hovered = -1;
+        segmentGraphics.Clear();
+        labels.Clear();
+        hoveredIndex = -1;
     }
 
-    // === Hover/Select ===
-    void SetHover(int idx)
+    void UpdateHoverIndex()
     {
-        if (hovered == idx) return;
-        hovered = idx;
+        int index = GetPointerIndex();
+        if (index == hoveredIndex)
+            return;
 
-        for (int i = 0; i < segImgs.Count; i++)
+        hoveredIndex = index;
+        for (int i = 0; i < segmentGraphics.Count; i++)
         {
-            bool on = (i == idx);
-            segImgs[i].color = on ? segHover : segNormal;
+            bool active = i == hoveredIndex;
+            var g = segmentGraphics[i];
+            g.color = active ? segmentHoverColor : segmentColor;
+            g.SetVerticesDirty();
 
             if (i < labels.Count)
             {
-                labels[i].color = on ? labelHover : labelNormal;
-                labels[i].fontSize = on ? 44 : 38;
+                labels[i].color = active ? labelHoverColor : labelColor;
+                labels[i].fontSize = active ? 46 : 40;
             }
-        }
-
-        // тонкая дуга внутри кольца
-        if (hoverRing)
-        {
-            if (idx >= 0 && options.Count > 0)
-            {
-                float sector = 360f / options.Count;
-                float midDeg = startAngleDeg + (idx + 0.5f) * sector;
-                float span = sector * Mathf.Clamp01(hoverFillPercent);
-                float a0 = midDeg - span * 0.5f;
-                float a1 = midDeg + span * 0.5f;
-
-                hoverRing.enabled = true;
-                hoverRing.SetArc(a0, a1, labelRadius + hoverRingOffset, hoverRingThickness);
-            }
-            else hoverRing.enabled = false;
         }
     }
 
-    void Choose(int index)
+    int GetPointerIndex()
     {
-        onChoice?.Invoke(index);
-        Hide();
-    }
+        Camera eventCam = GetEventCamera();
+        if (!wheelRoot || !RectTransformUtility.ScreenPointToLocalPointInRectangle(wheelRoot, Input.mousePosition, eventCam, out Vector2 local))
+            return -1;
 
-    // === Ray/Angle math ===
-    int GazeHoverIndex(Camera c, out Vector3 worldHit)
-    {
-        worldHit = transform.position;
+        float dist = local.magnitude;
+        if (dist < innerRadius || dist > outerRadius)
+            return -1;
 
-        var plane = new Plane(transform.forward, transform.position);
-        Ray ray = new Ray(c.transform.position, c.transform.forward);
-        if (!plane.Raycast(ray, out float dist)) return -1;
-
-        worldHit = ray.GetPoint(dist);
-
-        Vector3 local = transform.InverseTransformPoint(worldHit);
-        Vector2 p = new Vector2(local.x, local.y);
-        if (p.sqrMagnitude < 1e-6f) return -1;
-
-        float angle = Mathf.Atan2(p.y, p.x) * Mathf.Rad2Deg; // 0° по +X
+        float angle = Mathf.Atan2(local.y, local.x) * Mathf.Rad2Deg;
         if (angle < 0f) angle += 360f;
 
-        if (options.Count == 0) return -1;
+        if (options.Count == 0)
+            return -1;
 
         float sector = 360f / options.Count;
         float a = (angle - startAngleDeg) % 360f;
@@ -250,5 +214,18 @@ public class RadialChoiceWheel : MonoBehaviour
 
         int idx = Mathf.FloorToInt(a / sector);
         return Mathf.Clamp(idx, 0, options.Count - 1);
+    }
+
+    Camera GetEventCamera()
+    {
+        if (cachedCanvas == null)
+            cachedCanvas = GetComponentInParent<Canvas>();
+        return cachedCanvas != null ? cachedCanvas.worldCamera : null;
+    }
+
+    void Choose(int index)
+    {
+        onChoice?.Invoke(index);
+        Hide();
     }
 }
