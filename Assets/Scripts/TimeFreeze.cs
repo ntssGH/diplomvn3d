@@ -2,10 +2,14 @@ using UnityEngine;
 public class TimeFreeze : MonoBehaviour
 {
     public bool IsFrozen { get; private set; }
+    float previousTimeScale = 1f;
+    bool previousAudioPause;
 
     public void Freeze()
     {
         if (IsFrozen) return;
+        previousTimeScale = Time.timeScale;
+        previousAudioPause = AudioListener.pause;
         AudioListener.pause = true;
         Time.timeScale = 0f;
         IsFrozen = true;
@@ -14,8 +18,8 @@ public class TimeFreeze : MonoBehaviour
     public void Unfreeze()
     {
         if (!IsFrozen) return;
-        AudioListener.pause = false;
-        Time.timeScale = 1f;
+        AudioListener.pause = previousAudioPause;
+        Time.timeScale = previousTimeScale;
         IsFrozen = false;
     }
 }

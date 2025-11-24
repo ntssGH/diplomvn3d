@@ -35,6 +35,12 @@ public class DialoguePanelFader : MonoBehaviour
     // Публичные методы
     public void Show(string msg, bool typewriter = true)
     {
+        if (!text)
+        {
+            Debug.LogWarning($"{nameof(DialoguePanelFader)} on {name} has no text assigned.");
+            return;
+        }
+
         if (typeCo != null) StopCoroutine(typeCo);
         gameObject.SetActive(true);
         SetRaycast(true);
@@ -47,6 +53,12 @@ public class DialoguePanelFader : MonoBehaviour
 
     public void Hide()
     {
+        if (typeCo != null)
+        {
+            StopCoroutine(typeCo);
+            typeCo = null;
+        }
+
         SetRaycast(false);
         StartFade(0f, deactivate:true);
     }
@@ -77,6 +89,7 @@ public class DialoguePanelFader : MonoBehaviour
     IEnumerator TypeRoutine(string msg)
     {
         if (!text) yield break;
+        msg ??= string.Empty;
         text.text = "";
         float shown = 0f;
         while (shown < msg.Length)
@@ -88,6 +101,13 @@ public class DialoguePanelFader : MonoBehaviour
         }
         text.text = msg;
         typeCo = null;
+    }
+
+    void OnDisable()
+    {
+        if (fadeCo != null) StopCoroutine(fadeCo);
+        if (typeCo != null) StopCoroutine(typeCo);
+        fadeCo = typeCo = null;
     }
 
     // Утилиты
