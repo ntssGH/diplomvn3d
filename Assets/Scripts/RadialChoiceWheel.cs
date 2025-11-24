@@ -38,6 +38,7 @@ public class RadialChoiceWheel : MonoBehaviour
     readonly List<TextMeshProUGUI> labels = new();
     int hoveredIndex = -1;
     Canvas cachedCanvas;
+    Coroutine selectionRoutine;
 
     void Awake()
     {
@@ -56,6 +57,11 @@ public class RadialChoiceWheel : MonoBehaviour
     public void BuildAndShow(List<string> opts)
     {
         options = opts != null && opts.Count > 0 ? new List<string>(opts) : options;
+        if (selectionRoutine != null)
+        {
+            StopCoroutine(selectionRoutine);
+            selectionRoutine = null;
+        }
         ClearSegments();
         if (options.Count > 0)
         {
@@ -67,12 +73,19 @@ public class RadialChoiceWheel : MonoBehaviour
 
     public void Hide()
     {
+        if (selectionRoutine != null)
+        {
+            StopCoroutine(selectionRoutine);
+            selectionRoutine = null;
+        }
         if (canvasGroup)
         {
             canvasGroup.alpha = 0f;
             canvasGroup.interactable = false;
             canvasGroup.blocksRaycasts = false;
         }
+        if (wheelRoot)
+            wheelRoot.localScale = Vector3.one;
         gameObject.SetActive(false);
     }
 
@@ -127,11 +140,7 @@ public class RadialChoiceWheel : MonoBehaviour
             var labelRect = labelGO.GetComponent<RectTransform>();
             labelRect.sizeDelta = new Vector2(520f, 96f);
             labelRect.anchorMin = labelRect.anchorMax = new Vector2(0.5f, 0.5f);
-
-            float midDeg = (start + end) * 0.5f;
-            float midRad = midDeg * Mathf.Deg2Rad;
-            Vector2 labelPos = new Vector2(Mathf.Cos(midRad), Mathf.Sin(midRad)) * labelRadius;
-            labelRect.anchoredPosition = labelPos;
+            labelRect.anchoredPosition = Vector2.zero;
             labelRect.localRotation = Quaternion.identity;
 
             var tmp = labelGO.GetComponent<TextMeshProUGUI>();
@@ -144,6 +153,9 @@ public class RadialChoiceWheel : MonoBehaviour
             tmp.text = options[i];
             tmp.raycastTarget = false;
             labels.Add(tmp);
+
+            var bender = labelGO.AddComponent<RadialTextBender>();
+            bender.Configure(start, end, labelRadius);
         }
 
         if (canvasGroup)
@@ -225,7 +237,62 @@ public class RadialChoiceWheel : MonoBehaviour
 
     void Choose(int index)
     {
+        if (selectionRoutine != null)
+            StopCoroutine(selectionRoutine);
+
+        selectionRoutine = StartCoroutine(PlaySelectionAnimation(index));
         onChoice?.Invoke(index);
+    }
+
+    System.Collections.IEnumerator PlaySelectionAnimation(int index)
+    {
+        float duration = 0.22f;
+        float popScale = 1.08f;
+        float elapsed = 0f;
+
+        var seg = index >= 0 && index < segmentGraphics.Count ? segmentGraphics[index] : null;
+        var label = index >= 0 && index < labels.Count ? labels[index] : null;
+        Color segStart = seg ? seg.color : Color.white;
+        Color segEnd = seg ? segmentHoverColor : segStart;
+        Color labelStart = label ? label.color : Color.white;
+        Color labelEnd = label ? labelHoverColor : labelStart;
+        float labelBaseSize = label ? label.fontSize : 0f;
+
+        if (canvasGroup)
+            canvasGroup.interactable = false;
+
+        while (elapsed < duration)
+        {
+            float t = elapsed / duration;
+            float eased = Mathf.SmoothStep(0f, 1f, t);
+            float pulse = Mathf.Sin(t * Mathf.PI);
+
+            if (wheelRoot)
+                wheelRoot.localScale = Vector3.Lerp(Vector3.one, Vector3.one * popScale, pulse);
+
+            if (canvasGroup)
+                canvasGroup.alpha = Mathf.Lerp(1f, 0f, eased);
+
+            if (seg)
+            {
+                seg.color = Color.Lerp(segStart, segEnd, eased);
+                seg.SetVerticesDirty();
+            }
+
+            if (label)
+            {
+                label.color = Color.Lerp(labelStart, labelEnd, eased);
+                label.fontSize = Mathf.Lerp(labelBaseSize, 48f, eased);
+            }
+
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        if (wheelRoot)
+            wheelRoot.localScale = Vector3.one;
+
         Hide();
+        selectionRoutine = null;
     }
 }
