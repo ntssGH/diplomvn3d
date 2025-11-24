@@ -80,7 +80,8 @@ public class RadialTextBender : MonoBehaviour
             Vector3 mid = (bl + tr) * 0.5f;
             float t = (mid.x - baselineStart) / baselineWidth;
             float ang = Mathf.Lerp(startRad, endRad, t);
-            Quaternion rot = Quaternion.Euler(0f, 0f, ang * Mathf.Rad2Deg + 90f);
+            // Rotate along the tangent so letters remain upright at the top of the wheel.
+            Quaternion rot = Quaternion.Euler(0f, 0f, ang * Mathf.Rad2Deg - 90f);
             Vector3 radialPos = new Vector3(Mathf.Cos(ang), Mathf.Sin(ang), 0f) * radius + new Vector3(center.x, center.y, 0f);
 
             verts[vertIndex + 0] = radialPos + rot * (bl - mid);
