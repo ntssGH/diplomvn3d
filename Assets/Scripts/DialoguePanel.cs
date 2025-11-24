@@ -9,20 +9,39 @@ public class DialoguePanel : MonoBehaviour
     public float fadeTime = 0.15f;
     public float charsPerSecond = 45f; // скорость печати
     CanvasGroup cg;
-    Coroutine typeCo;
+    Coroutine typeCo, fadeCo;
 
     void Awake() => cg = GetComponent<CanvasGroup>();
 
     public void Show(string msg, bool typewriter = true)
     {
+        if (text == null)
+        {
+            Debug.LogWarning($"{nameof(DialoguePanel)} on {name} has no text assigned.");
+            return;
+        }
+
         if (typeCo != null) StopCoroutine(typeCo);
+        if (fadeCo != null) StopCoroutine(fadeCo);
+
         gameObject.SetActive(true);
-        if (typewriter) typeCo = StartCoroutine(TypeRoutine(msg));
-        else text.text = msg;
-        StartCoroutine(FadeTo(1f));
+        typeCo = typewriter ? StartCoroutine(TypeRoutine(msg)) : null;
+        if (!typewriter) text.text = msg;
+
+        fadeCo = StartCoroutine(FadeTo(1f));
     }
 
-    public void Hide() => StartCoroutine(FadeTo(0f, deactivate:true));
+    public void Hide()
+    {
+        if (typeCo != null)
+        {
+            StopCoroutine(typeCo);
+            typeCo = null;
+        }
+
+        if (fadeCo != null) StopCoroutine(fadeCo);
+        fadeCo = StartCoroutine(FadeTo(0f, deactivate:true));
+    }
 
     IEnumerator FadeTo(float target, bool deactivate = false)
     {
@@ -41,6 +60,7 @@ public class DialoguePanel : MonoBehaviour
 
     IEnumerator TypeRoutine(string msg)
     {
+        msg ??= string.Empty;
         text.text = "";
         float t = 0f;
         int i = 0;
@@ -57,5 +77,12 @@ public class DialoguePanel : MonoBehaviour
         }
         text.text = msg;
         typeCo = null;
+    }
+
+    void OnDisable()
+    {
+        if (typeCo != null) StopCoroutine(typeCo);
+        if (fadeCo != null) StopCoroutine(fadeCo);
+        typeCo = fadeCo = null;
     }
 }
