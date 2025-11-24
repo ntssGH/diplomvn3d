@@ -2,32 +2,101 @@
 # Default Collab Ignore Rules
 # ===========================
 
-# OS Generated
-# ============
+# ===========================
+# OS GENERATED
+# ===========================
 .DS_Store
+*.DS_Store
 ._*
 .Spotlight-V100
 .Trashes
 Icon?
+[Dd]esktop.ini
 ehthumbs.db
 [Tt]humbs.db
-[Dd]esktop.ini
+*~
 
-# Visual Studio / MonoDevelop generated
-# =====================================
-[Ee]xported[Oo]bj/
-*.userprefs
-*.csproj
-*.pidb
-*.suo
-*.sln
-*.user
-*.unityproj
-*.booproj
-
-# Unity generated
-# ===============
+# ===========================
+# UNITY GENERATED
+# ===========================
+[Ll]ibrary/
+[Tt]emp/
 [Oo]bj/
-[Bb]uild
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+MemoryCaptures/
+UserSettings/
 sysinfo.txt
 *.stackdump
+
+# Unity asset database cache
+*.pidb
+
+# Partial/meta temp
+*.meta.tmp
+
+# ===========================
+# PROJECT FILES (IDE)
+# ===========================
+# Visual Studio / MonoDevelop / Rider
+*.sln
+*.csproj
+*.unityproj
+*.user
+*.userprefs
+*.suo
+*.booproj
+*.svd
+.vs/
+.idea/
+
+# VSCode
+.vscode/
+
+# ===========================
+# TEXTMESH PRO
+# ===========================
+[Tt]extMesh Pro/*
+!TextMesh Pro/Resources/*
+
+# ===========================
+# ADDRESSABLES
+# ===========================
+AddressableAssetsData/*/*.bin*
+AddressableAssetsData/*/*.hash
+AddressableAssetsData/*/*.json
+AddressableAssetsData/*/link.xml
+
+# ===========================
+# BUILD ARTIFACTS
+# ===========================
+*.apk
+*.aab
+*.unitypackage
+
+# ===========================
+# CACHE / TEMP
+# ===========================
+*.cache
+Cache/
+Cache/**
+
+# ===========================
+# VERSION CONTROL
+# ===========================
+.collabignore
+PlasticSCM/
+
+# ===========================
+# DEBUG SYMBOLS
+# ===========================
+*.pdb
+*.mdb
+
+# ===========================
+# AUTO-GENERATED MISC
+# ===========================
+/.crunch/
+*.crunch.tmp
+*.orig
