@@ -37,6 +37,7 @@ public class RadialChoiceWheel : MonoBehaviour
 
     [Header("Input")]
     public bool useGaze = true;                 // наведение взглядом
+    public bool useMouse = true;                // наведение мышкой
     public KeyCode confirmKey = KeyCode.E;      // подтвердить
     public KeyCode altConfirmKey = KeyCode.Space;
 
@@ -50,6 +51,8 @@ public class RadialChoiceWheel : MonoBehaviour
     readonly List<Image> segImgs = new();
     readonly List<TextMeshProUGUI> labels = new();
     int hovered = -1;
+
+    float SectorAngle => options.Count > 0 ? 360f / options.Count : 0f;
 
     void Awake()
     {
@@ -65,17 +68,8 @@ public class RadialChoiceWheel : MonoBehaviour
         ClearSegments();
         if (options.Count > 0) BuildSegments();
 
-        // чтобы мир-UI не перехватывал клики
-        foreach (var g in GetComponentsInChildren<Graphic>(true)) g.raycastTarget = false;
-
-        // подготовим hover-дугу
-        if (hoverRing)
-        {
-            hoverRing.enabled = false;
-            hoverRing.color = new Color(1, 1, 1, 0.6f);
-            hoverRing.outerRadius = labelRadius + hoverRingOffset;
-            hoverRing.thickness = hoverRingThickness;
-        }
+        DisableAllRaycasts();
+        PrepareHoverRing();
 
         gameObject.SetActive(true);
     }
@@ -86,15 +80,22 @@ public class RadialChoiceWheel : MonoBehaviour
     {
         if (!gameObject.activeInHierarchy || options.Count == 0) return;
 
-        // наведение взглядом
-        if (useGaze && cam)
+        // наведение мышкой приоритетнее, затем взглядом как запасной вариант
+        int idx = -1;
+        Vector3 hitPoint = transform.position;
+
+        if (useMouse && cam)
         {
-            Vector3 hitPoint;
-            int idx = GazeHoverIndex(cam, out hitPoint);
-            SetHover(idx);
+            idx = PointerHoverIndex(cam, Input.mousePosition);
+        }
+        if (idx < 0 && useGaze && cam)
+        {
+            idx = GazeHoverIndex(cam, out hitPoint);
             // В Game-вью включи "Gizmos", если хочешь видеть линию:
             Debug.DrawLine(cam.transform.position, hitPoint, Color.cyan, 0f, true);
         }
+
+        SetHover(idx);
 
         // хоткеи 1..9
         for (int i = 0; i < options.Count && i < 9; i++)
@@ -111,74 +112,25 @@ public class RadialChoiceWheel : MonoBehaviour
     // === Geometry ===
     void BuildSegments()
     {
-        float sector = 360f / options.Count;
+        float sector = SectorAngle;
 
         for (int i = 0; i < options.Count; i++)
         {
-            // сегмент-пирожок (визуальная база)
-            var segGO = new GameObject($"Seg_{i}", typeof(RectTransform), typeof(Image));
-            segGO.transform.SetParent(segmentsRoot, false);
-            var sr = segGO.GetComponent<RectTransform>();
-            sr.sizeDelta = new Vector2(radius * 2f, radius * 2f);
-            sr.anchoredPosition = Vector2.zero;
-            sr.localRotation = Quaternion.Euler(0, 0, -(startAngleDeg + i * sector));
-
-            var img = segGO.GetComponent<Image>();
-            img.sprite = circleSprite;
-            img.type = Image.Type.Filled;
-            img.fillMethod = Image.FillMethod.Radial360;
-            img.fillOrigin = 2;      // сверху
-            img.fillClockwise = false;
-            img.fillAmount = 1f / options.Count;
-            img.color = segNormal;
-            img.raycastTarget = false;
-            segImgs.Add(img);
-
-            // подпись
-            var labelGO = new GameObject($"Label_{i}", typeof(RectTransform), typeof(TextMeshProUGUI));
-            labelGO.transform.SetParent(segmentsRoot, false);
-            var lr = labelGO.GetComponent<RectTransform>();
-            lr.sizeDelta = new Vector2(520, 90);
-
-            float midDeg = startAngleDeg + (i + 0.5f) * sector;
-            float midRad = midDeg * Mathf.Deg2Rad;
-            lr.anchoredPosition = new Vector2(Mathf.Cos(midRad), Mathf.Sin(midRad)) * labelRadius;
-            lr.localRotation = Quaternion.identity;
-
-            var tmp = labelGO.GetComponent<TextMeshProUGUI>();
-            if (font) tmp.font = font;
-            tmp.text = $"{i + 1}) {options[i]}";
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.enableAutoSizing = true; tmp.fontSizeMin = 22; tmp.fontSizeMax = 48;
-            tmp.color = labelNormal;
-            tmp.raycastTarget = false;
-            labels.Add(tmp);
-
-            // делитель (по желанию)
-            if (showDividers)
-            {
-                var divGO = new GameObject($"Divider_{i}", typeof(RectTransform), typeof(Image));
-                divGO.transform.SetParent(segmentsRoot, false);
-                var dr = divGO.GetComponent<RectTransform>();
-                dr.sizeDelta = new Vector2(dividerThickness, radius * 2f);
-                dr.anchoredPosition = Vector2.zero;
-
-                float edgeDeg = startAngleDeg + i * sector;
-                dr.localRotation = Quaternion.Euler(0, 0, -edgeDeg);
-
-                var dimg = divGO.GetComponent<Image>();
-                dimg.color = dividerColor;
-                dimg.raycastTarget = false;
-            }
+            CreateSegmentVisual(i, sector);
+            CreateLabel(i, sector);
+            if (showDividers) CreateDivider(i, sector);
         }
     }
 
     void ClearSegments()
     {
         for (int i = segmentsRoot.childCount - 1; i >= 0; i--)
+        {
             Destroy(segmentsRoot.GetChild(i).gameObject);
+        }
 
-        segImgs.Clear(); labels.Clear();
+        segImgs.Clear();
+        labels.Clear();
         hovered = -1;
     }
 
@@ -205,9 +157,8 @@ public class RadialChoiceWheel : MonoBehaviour
         {
             if (idx >= 0 && options.Count > 0)
             {
-                float sector = 360f / options.Count;
-                float midDeg = startAngleDeg + (idx + 0.5f) * sector;
-                float span = sector * Mathf.Clamp01(hoverFillPercent);
+                float midDeg = startAngleDeg + (idx + 0.5f) * SectorAngle;
+                float span = SectorAngle * Mathf.Clamp01(hoverFillPercent);
                 float a0 = midDeg - span * 0.5f;
                 float a1 = midDeg + span * 0.5f;
 
@@ -224,7 +175,95 @@ public class RadialChoiceWheel : MonoBehaviour
         Hide();
     }
 
+    // === Helpers ===
+    void DisableAllRaycasts()
+    {
+        foreach (var g in GetComponentsInChildren<Graphic>(true))
+            g.raycastTarget = false;
+    }
+
+    void PrepareHoverRing()
+    {
+        if (!hoverRing) return;
+
+        hoverRing.enabled = false;
+        hoverRing.color = new Color(1, 1, 1, 0.6f);
+        hoverRing.outerRadius = labelRadius + hoverRingOffset;
+        hoverRing.thickness = hoverRingThickness;
+    }
+
+    void CreateSegmentVisual(int index, float sector)
+    {
+        var segGO = new GameObject($"Seg_{index}", typeof(RectTransform), typeof(Image));
+        segGO.transform.SetParent(segmentsRoot, false);
+
+        var sr = segGO.GetComponent<RectTransform>();
+        sr.sizeDelta = new Vector2(radius * 2f, radius * 2f);
+        sr.anchoredPosition = Vector2.zero;
+        sr.localRotation = Quaternion.Euler(0, 0, -(startAngleDeg + index * sector));
+
+        var img = segGO.GetComponent<Image>();
+        img.sprite = circleSprite;
+        img.type = Image.Type.Filled;
+        img.fillMethod = Image.FillMethod.Radial360;
+        img.fillOrigin = 2;      // сверху
+        img.fillClockwise = false;
+        img.fillAmount = 1f / options.Count;
+        img.color = segNormal;
+        img.raycastTarget = false;
+        segImgs.Add(img);
+    }
+
+    void CreateLabel(int index, float sector)
+    {
+        var labelGO = new GameObject($"Label_{index}", typeof(RectTransform), typeof(TextMeshProUGUI));
+        labelGO.transform.SetParent(segmentsRoot, false);
+
+        var lr = labelGO.GetComponent<RectTransform>();
+        lr.sizeDelta = new Vector2(520, 90);
+
+        float midDeg = startAngleDeg + (index + 0.5f) * sector;
+        float midRad = midDeg * Mathf.Deg2Rad;
+        lr.anchoredPosition = new Vector2(Mathf.Cos(midRad), Mathf.Sin(midRad)) * labelRadius;
+        lr.localRotation = Quaternion.identity;
+
+        var tmp = labelGO.GetComponent<TextMeshProUGUI>();
+        if (font) tmp.font = font;
+        tmp.text = $"{index + 1}) {options[index]}";
+        tmp.alignment = TextAlignmentOptions.Center;
+        tmp.enableAutoSizing = true;
+        tmp.fontSizeMin = 22;
+        tmp.fontSizeMax = 48;
+        tmp.color = labelNormal;
+        tmp.raycastTarget = false;
+        labels.Add(tmp);
+    }
+
+    void CreateDivider(int index, float sector)
+    {
+        var divGO = new GameObject($"Divider_{index}", typeof(RectTransform), typeof(Image));
+        divGO.transform.SetParent(segmentsRoot, false);
+
+        var dr = divGO.GetComponent<RectTransform>();
+        dr.sizeDelta = new Vector2(dividerThickness, radius * 2f);
+        dr.anchoredPosition = Vector2.zero;
+
+        float edgeDeg = startAngleDeg + index * sector;
+        dr.localRotation = Quaternion.Euler(0, 0, -edgeDeg);
+
+        var dimg = divGO.GetComponent<Image>();
+        dimg.color = dividerColor;
+        dimg.raycastTarget = false;
+    }
+
     // === Ray/Angle math ===
+    int PointerHoverIndex(Camera c, Vector2 screenPos)
+    {
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(rect, screenPos, c, out var local))
+            return HoverIndexFromLocal(local);
+        return -1;
+    }
+
     int GazeHoverIndex(Camera c, out Vector3 worldHit)
     {
         worldHit = transform.position;
@@ -242,13 +281,27 @@ public class RadialChoiceWheel : MonoBehaviour
         float angle = Mathf.Atan2(p.y, p.x) * Mathf.Rad2Deg; // 0° по +X
         if (angle < 0f) angle += 360f;
 
+        return IndexFromAngle(angle);
+    }
+
+    int HoverIndexFromLocal(Vector2 local)
+    {
+        if (local.sqrMagnitude < 1e-6f || options.Count == 0) return -1;
+
+        float angle = Mathf.Atan2(local.y, local.x) * Mathf.Rad2Deg;
+        if (angle < 0f) angle += 360f;
+
+        return IndexFromAngle(angle);
+    }
+
+    int IndexFromAngle(float absoluteAngle)
+    {
         if (options.Count == 0) return -1;
 
-        float sector = 360f / options.Count;
-        float a = (angle - startAngleDeg) % 360f;
-        if (a < 0f) a += 360f;
+        float offsetAngle = (absoluteAngle - startAngleDeg) % 360f;
+        if (offsetAngle < 0f) offsetAngle += 360f;
 
-        int idx = Mathf.FloorToInt(a / sector);
+        int idx = Mathf.FloorToInt(offsetAngle / SectorAngle);
         return Mathf.Clamp(idx, 0, options.Count - 1);
     }
 }
